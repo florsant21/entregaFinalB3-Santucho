@@ -1,69 +1,91 @@
 import { Router } from 'express';
-import { generateMockUsers } from '../utils/mockingModule.js';
-import { createHash } from '../utils/index.js';
+import { generateUser, generatePet } from '../utils/mockingModule.js';
 import { usersService, petsService } from '../services/index.js';
 import PetDTO from '../dto/Pet.dto.js';
+import logger from '../utils/logger.js';
 
 const router = Router();
 
-router.get('/mockingpets', (req, res) => {
-    const mockPets = [];
-    for (let i = 0; i < 10; i++) {
-        mockPets.push({
-            _id: `mockPetId${i}`, 
-            name: `Mocky Pet ${i}`,
-            specie: i % 2 === 0 ? 'Dog' : 'Cat',
-            birthDate: new Date(2020, i, 1),
-            adopted: false,
-            image: 'no-image.jpg'
-        });
-    }
-    res.send({ status: "success", payload: mockPets });
-});
-
-router.get('/mockingusers', async (req, res) => {
-    const numberOfUsers = 50;
-    const mockUsers = await generateMockUsers(numberOfUsers); 
-    res.send({ status: "success", payload: mockUsers });
-});
-
-router.post('/generateData', async (req, res) => {
-    const { users: numUsers, pets: numPets } = req.body;
-
-    if (typeof numUsers !== 'number' || typeof numPets !== 'number' || numUsers < 0 || numPets < 0) {
-        return res.status(400).send({ status: "error", error: "Please provide valid positive numbers for 'users' and 'pets'." });
-    }
-
+router.get('/mockingpets', (req, res, next) => {
     try {
-        const generatedUsers = await generateMockUsers(numUsers, true); 
+        const quantity = parseInt(req.query.quantity) || 10;
+        if (isNaN(quantity) || quantity < 0) {
+            req.logger.warning(`Solicitud inválida para /mockingpets con cantidad: ${req.query.quantity}`);
+            return res.status(400).send({ status: "error", error: "La cantidad debe ser un número positivo." });
+        }
+
+        const mockPets = [];
+        for (let i = 0; i < quantity; i++) {
+            mockPets.push(generatePet());
+        }
+        res.send({ status: "success", payload: mockPets });
+    } catch (error) {
+        req.logger.error(`Error en /mockingpets: ${error.message}`);
+        next(error);
+    }
+});
+
+router.get('/mockingusers', async (req, res, next) => {
+    try {
+        const quantity = parseInt(req.query.quantity) || 50;
+        if (isNaN(quantity) || quantity < 0) {
+            req.logger.warning(`Solicitud inválida para /mockingusers con cantidad: ${req.query.quantity}`);
+            return res.status(400).send({ status: "error", error: "La cantidad debe ser un número positivo." });
+        }
+
+        const mockUsers = [];
+        for (let i = 0; i < quantity; i++) {
+            mockUsers.push(await generateUser());
+        }
+        res.send({ status: "success", payload: mockUsers });
+    } catch (error) {
+        req.logger.error(`Error en /mockingusers: ${error.message}`);
+        next(error);
+    }
+});
+
+router.get('/generateData', async (req, res, next) => {
+    try {
+        const numUsers = parseInt(req.query.users);
+        const numPets = parseInt(req.query.pets);
+
+        if (isNaN(numUsers) || numUsers < 0 || isNaN(numPets) || numPets < 0) {
+            req.logger.warning(`Solicitud inválida para /generateData con users: ${req.query.users}, pets: ${req.query.pets}`);
+            return res.status(400).send({ status: "error", error: "Por favor, proporcione números positivos válidos para 'users' y 'pets' en la consulta (query)." });
+        }
+
         const insertedUsers = [];
-        for (const user of generatedUsers) {
+        for (let i = 0; i < numUsers; i++) {
+            const user = await generateUser(true);
             const result = await usersService.create(user);
             insertedUsers.push(result);
+            req.logger.info(`Usuario generado e insertado: ${result.email}`);
         }
 
         const insertedPets = [];
         for (let i = 0; i < numPets; i++) {
+            const petData = generatePet();
             const pet = PetDTO.getPetInputFrom({
-                name: `Generated Pet ${i}`,
-                specie: i % 2 === 0 ? 'Dog' : 'Cat',
-                birthDate: new Date(2021, i % 12, (i % 28) + 1),
-                image: 'generated-image.jpg'
+                name: petData.name,
+                specie: petData.specie,
+                birthDate: petData.birthDate,
+                image: petData.image
             });
-            const result = await petsService.create(pet); 
+            const result = await petsService.create(pet);
             insertedPets.push(result);
+            req.logger.info(`Mascota generada e insertada: ${result.name}`);
         }
 
         res.send({
             status: "success",
-            message: `${insertedUsers.length} users and ${insertedPets.length} pets generated and inserted successfully.`,
+            message: `${insertedUsers.length} usuarios y ${insertedPets.length} mascotas generados e insertados exitosamente.`,
             insertedUsers: insertedUsers.map(user => user._id),
             insertedPets: insertedPets.map(pet => pet._id)
         });
 
     } catch (error) {
-        console.error("Error generating or inserting data:", error);
-        res.status(500).send({ status: "error", error: "Failed to generate and insert data." });
+        req.logger.error("Error al generar o insertar datos:", error);
+        next(error);
     }
 });
 
