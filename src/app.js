@@ -45,3 +45,5 @@ app.get('/loggerTest', (req, res) => {
 app.use(errorHandler);
 
 app.listen(PORT, () => logger.info(`Servidor escuchando en el puerto ${PORT}`));
+
+export default app;
